@@ -158,6 +158,9 @@ fn main() -> eframe::Result {
                 eprintln!("effectcraft: {e}");
             }
             let show_home = home.unwrap_or(session.prefs.startup.show_home_on_launch && files.is_empty() && control_port.is_none());
+            // The ScriptUI panels open when the app last quit open again (a failing one is
+            // reported in a toast and forgotten).
+            let _ = session.execute("window.restoreScriptPanels", json!({}));
             let mut app = EffectcraftApp::new(session);
             app.set_gpu_failure_bridge(gpu_failures);
             app.ui.start_screen = show_home;

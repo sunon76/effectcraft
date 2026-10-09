@@ -82,6 +82,8 @@ pub fn run_code(s: &mut Session, code: &str, name: &str) -> Outcome {
 #[cfg(test)]
 mod tests;
 #[cfg(test)]
+mod tests_panels;
+#[cfg(test)]
 mod tests_ui;
 #[cfg(test)]
 mod tests_ui_more;

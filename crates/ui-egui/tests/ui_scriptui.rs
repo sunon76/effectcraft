@@ -90,6 +90,28 @@ fn script_windows_are_drawn_and_clickable() {
     h.state_mut().session.execute("scriptui.close", json!({})).unwrap();
 }
 
+/// A ScriptUI panel open when the app quit opens again, docked, at the next launch (the
+/// frontends call `window.restoreScriptPanels` before building the app).
+#[test]
+fn panels_open_at_quit_dock_again_at_launch() {
+    use effectcraft_engine::config::{ConfigStore, MemoryConfig};
+    let store = std::sync::Arc::new(MemoryConfig::default());
+    store.write("Scripts/ScriptUI Panels/Hello Panel.jsx", "this.add('button', undefined, 'Hi', { name: 'hi' });").unwrap();
+    store.write(effectcraft_engine::commands::scripts::OPEN_PANELS_FILE, r#"{"open": ["Hello Panel.jsx"]}"#).unwrap();
+    let mut s = effectcraft_host::session();
+    s.config = Some(store.clone());
+    s.execute("window.restoreScriptPanels", json!({})).unwrap();
+    let mut h = Harness::builder().with_size(egui::vec2(1400.0, 900.0)).build_eframe(|_| EffectcraftApp::new(s));
+    h.run_steps(3);
+    let panel = h.state().session.script_ui.windows.iter().find(|w| w.script == "Hello Panel.jsx").expect("the panel's window").id;
+    assert!(h.state().ui.dock.contains(PanelKind::ScriptPanel(panel)), "the panel docks");
+    assert!(h.state().auto.find(&format!("scriptui.{panel}.hi")).is_some(), "its controls are drawn");
+    // Closing its tab forgets it for the next launch.
+    h.state_mut().close_panel(PanelKind::ScriptPanel(panel));
+    h.run_steps(2);
+    assert_eq!(store.read(effectcraft_engine::commands::scripts::OPEN_PANELS_FILE).as_deref(), Some(r#"{"open":[]}"#));
+}
+
 #[test]
 fn history_panel_jumps_between_branches() {
     let mut h = harness();

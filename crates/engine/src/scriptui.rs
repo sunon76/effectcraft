@@ -629,7 +629,11 @@ fn widget_p(s: &Session, win: u32, p: &Value, cmd: &str) -> Result<u32> {
 
 fn dispatch(s: &mut Session, ev: ScriptUiEvent) -> Result<Value> {
     let f = s.script_ui.dispatch.ok_or_else(|| EngineError::Other("scripting is not available in this build".into()))?;
-    f(s, &ev).map_err(EngineError::Other)
+    // The event may close a ScriptUI panel (its tab, or the script itself): forget it then.
+    let open = crate::commands::scripts::open_panel_names(s);
+    let r = f(s, &ev).map_err(EngineError::Other);
+    crate::commands::scripts::forget_closed_panels(s, &open);
+    r
 }
 
 /// `scriptui.list`: the open script windows.

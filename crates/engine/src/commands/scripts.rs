@@ -18,6 +18,8 @@ use crate::{EngineError, Event, Result, Session, cmd, scriptui};
 /// The settings-store folders of installed scripts.
 pub const SCRIPTS_DIR: &str = "Scripts";
 pub const PANELS_DIR: &str = "Scripts/ScriptUI Panels";
+/// The ScriptUI panels open when EffectCraft last quit (settings store), reopened at launch.
+pub const OPEN_PANELS_FILE: &str = "scriptui_panels.json";
 
 /// Sample scripts that ship with EffectCraft (original work): (file name, ScriptUI panel, code).
 pub const SAMPLES: &[(&str, bool, &str)] = &[
@@ -134,6 +136,64 @@ pub fn panel_wrapper(title: &str, code: &str) -> String {
     format!("(function () {{ {code}\n}}).call(__uiDockPanel({}));", Value::String(title.to_string()))
 }
 
+/// The ScriptUI panels open now (script names).
+pub(crate) fn open_panel_names(s: &Session) -> Vec<String> {
+    s.script_ui.windows.iter().filter(|w| w.kind == scriptui::WindowKind::Panel).map(|w| w.script.clone()).collect()
+}
+
+/// The panels open when EffectCraft last quit (`{"open": [names]}`); a missing or unreadable
+/// file is none.
+fn remembered_panels(s: &Session) -> Vec<String> {
+    let text = s.config.as_ref().and_then(|c| c.read(OPEN_PANELS_FILE)).unwrap_or_default();
+    let doc: Value = serde_json::from_str(&text).unwrap_or(Value::Null);
+    doc.get("open").and_then(Value::as_array).into_iter().flatten().filter_map(Value::as_str).filter(|n| is_script(n)).map(str::to_string).collect()
+}
+
+/// Change the remembered panels with `f` (written only when it changed). The list is kept so
+/// the next launch reopens them, as After Effects reopens the panels of its workspace; quitting
+/// leaves it as it is.
+fn edit_remembered_panels(s: &Session, f: impl FnOnce(&mut Vec<String>)) {
+    let Some(cfg) = &s.config else { return };
+    let before = remembered_panels(s);
+    let mut list = before.clone();
+    f(&mut list);
+    if list != before
+        && let Err(e) = cfg.write(OPEN_PANELS_FILE, &json!({"open": list}).to_string())
+    {
+        log::warn!("cannot remember the open ScriptUI panels: {e}");
+    }
+}
+
+/// Forget the panels of `before` (open before a script window event) that are closed now.
+pub(crate) fn forget_closed_panels(s: &Session, before: &[String]) {
+    let now = open_panel_names(s);
+    let closed: Vec<&String> = before.iter().filter(|n| !now.contains(n)).collect();
+    if !closed.is_empty() {
+        edit_remembered_panels(s, |l| l.retain(|n| !closed.contains(&n)));
+    }
+}
+
+/// `window.restoreScriptPanels`: open the ScriptUI panels that were open when EffectCraft last
+/// quit (frontends call it once at launch). Panels whose script is gone or fails are reported
+/// and forgotten; the others still open.
+fn restore_panels(s: &mut Session, _: &Value) -> Result<Value> {
+    let (mut opened, mut failed) = (vec![], vec![]);
+    for name in remembered_panels(s) {
+        let r = match script_code(s, &name, Some(true)) {
+            Some(_) => open_panel(s, &json!({"name": name})).map_err(|e| e.to_string()),
+            None => Err("no such ScriptUI panel".to_string()),
+        };
+        match r {
+            Ok(_) => opened.push(name),
+            Err(error) => {
+                edit_remembered_panels(s, |l| l.retain(|n| *n != name));
+                failed.push(json!({"name": name, "error": error}));
+            }
+        }
+    }
+    Ok(json!({"opened": opened, "failed": failed}))
+}
+
 /// Window ▸ <ScriptUI panel>: run the panel script (or bring its panel forward).
 fn open_panel(s: &mut Session, p: &Value) -> Result<Value> {
     let c = "window.scriptPanel";
@@ -149,6 +209,13 @@ fn open_panel(s: &mut Session, p: &Value) -> Result<Value> {
     let id = s.script_ui.windows.iter().rev().find(|w| w.kind == scriptui::WindowKind::Panel && w.script == name).map(|w| w.id);
     if let Some(id) = id {
         s.events.push(Event::Frontend { command: c.into(), params: json!({"window": id}) });
+    }
+    if id.is_some() {
+        edit_remembered_panels(s, |l| {
+            if !l.contains(&name) {
+                l.push(name.clone());
+            }
+        });
     }
     Ok(json!({"window": id, "result": out}))
 }
@@ -183,6 +250,15 @@ pub fn specs() -> Vec<CommandSpec> {
             "{name (a script in the ScriptUI Panels folder, e.g. `Layer Tools.jsx`)} → opens it as a dockable panel",
             always,
             open_panel
+        ),
+        cmd!(
+            "window.restoreScriptPanels",
+            "Restore ScriptUI Panels",
+            [],
+            None,
+            "{} → reopens the ScriptUI panels open when EffectCraft last quit (frontends call it at launch) → {opened: [name], failed: [{name, error}]}",
+            always,
+            restore_panels
         ),
         crate::query!("scriptui.list", "List Script Windows", "{} → [{window, title, kind: dialog|palette|window|panel, script, modal, size}]", scriptui::list),
         crate::query!(

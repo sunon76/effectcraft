@@ -185,6 +185,12 @@ The most important missing piece: it turns every other estimate here into a meas
 - After Effects SDK plug-ins cannot run in EffectCraft. Our own WebAssembly plug-in API exists
   ([plugins.md](plugins.md)). Grow it: documentation, examples, and original effects that cover
   what the most common third-party plug-ins are used for (particles, glows, 3D objects, sabers).
+- Features that come from third parties in After Effects are extensions in EffectCraft too, built
+  on the same extension points as After Effects: scripts, ScriptUI panels and effect plug-ins
+  ([plugins.md](plugins.md#extension-points-compared-with-after-effects) compares them). ScriptUI
+  panels in the user's ScriptUI Panels folder are listed in the Window menu, dock like any panel
+  and open again at the next launch. Missing: the Startup and Shutdown script folders, keyboard
+  shortcuts for scripts, ExtendScript's `#include` / `#target` directives and `.jsxbin`.
 - Done so far: ease presets (Window ▸ Ease Presets, `keys.easePreset.*`, #254) cover what
   ease-curve plug-ins are used for: easing curves kept by name, drawn and edited in a value graph,
   and applied to pairs of keyframes ([parity.md](parity.md#update-ease-presets-254)).
