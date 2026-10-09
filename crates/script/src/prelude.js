@@ -824,31 +824,30 @@ Property.prototype.property = function () { return null; };
   };
   P.keyTime = function (i) { return this.__key(i).time; };
   P.keyValue = function (i) { return this.__fromEngine(this.__key(i).value, this.__info()); };
-  // Select key `i` (only) so the selection-based keyframe commands act on it.
-  P.__select = function (i) {
-    var k = this.__key(i);
-    __call("keys.select", { comp: this.__layer.__comp, keys: [{ layer: this.__layer.__id, prop: this.__uid, time: k.layerTime }] });
-    return k;
+  // Run a keyframe command that acts on the selected keys on key `i` only; the user's key
+  // selection stays as it was, as with After Effects' per-key methods.
+  P.__keyCmd = function (i, id, params) {
+    this.__key(i);
+    params = params || {};
+    params.comp = this.__layer.__comp;
+    params.__keys = [{ layer: this.__layer.__id, prop: this.__uid, index: __num(i) - 1 }];
+    return __call(id, params);
   };
-  P.removeKey = function (i) {
-    this.__select(i);
-    __call("keys.delete", { comp: this.__layer.__comp });
-  };
+  P.removeKey = function (i) { this.__keyCmd(i, "keys.delete"); };
   P.keyInInterpolationType = function (i) { return KeyframeInterpolationType[this.__key(i).inInterp]; };
   P.keyOutInterpolationType = function (i) { return KeyframeInterpolationType[this.__key(i).outInterp]; };
-  P.isInterpolationTypeValid = function (t) { return t === 6612 || t === 6613 || t === 6614; };
+  // Values that don't interpolate (checkboxes, popups, text) only hold.
+  P.isInterpolationTypeValid = function (t) { return t === 6614 || ((t === 6612 || t === 6613) && this.__info().interpolates !== false); };
   P.setInterpolationTypeAtKey = function (i, inType, outType) {
     if (outType === undefined) outType = inType;
     if (!__interpKey[inType] || !__interpKey[outType]) throw __err("Bad KeyframeInterpolationType");
-    this.__select(i);
-    __call("keys.interpolation", { comp: this.__layer.__comp, "in": __interpKey[inType], out: __interpKey[outType] });
+    this.__keyCmd(i, "keys.interpolation", { "in": __interpKey[inType], out: __interpKey[outType] });
   };
   P.keyInTemporalEase = function (i) { return this.__key(i).inEase.map(function (e) { return new KeyframeEase(e.speed, e.influence); }); };
   P.keyOutTemporalEase = function (i) { return this.__key(i).outEase.map(function (e) { return new KeyframeEase(e.speed, e.influence); }); };
   P.setTemporalEaseAtKey = function (i, inEase, outEase) {
     if (outEase === undefined) outEase = inEase;
     if (!(inEase instanceof Array) || !(outEase instanceof Array)) throw __err("setTemporalEaseAtKey: eases must be arrays of KeyframeEase");
-    this.__select(i);
     function sp(a) { return a.map(function (e) { return __num(e.speed, "speed"); }); }
     function inf(a) {
       return a.map(function (e) {
@@ -857,14 +856,14 @@ Property.prototype.property = function () { return null; };
         return x;
       });
     }
-    __call("keys.velocity", { comp: this.__layer.__comp, inSpeed: sp(inEase), inInfluence: inf(inEase), outSpeed: sp(outEase), outInfluence: inf(outEase) });
+    this.__keyCmd(i, "keys.velocity", { inSpeed: sp(inEase), inInfluence: inf(inEase), outSpeed: sp(outEase), outInfluence: inf(outEase) });
   };
   P.keyTemporalContinuous = function (i) { return !!this.__key(i).continuous; };
-  P.setTemporalContinuousAtKey = function (i, b) { this.__select(i); __call("keys.interpolation", { comp: this.__layer.__comp, continuous: !!b }); };
+  P.setTemporalContinuousAtKey = function (i, b) { this.__keyCmd(i, "keys.interpolation", { continuous: !!b }); };
   P.keyTemporalAutoBezier = function (i) { return !!this.__key(i).autoBezier; };
-  P.setTemporalAutoBezierAtKey = function (i, b) { this.__select(i); __call("keys.interpolation", { comp: this.__layer.__comp, autoBezier: !!b }); };
+  P.setTemporalAutoBezierAtKey = function (i, b) { this.__keyCmd(i, "keys.interpolation", { autoBezier: !!b }); };
   P.keyRoving = function (i) { return !!this.__key(i).roving; };
-  P.setRovingAtKey = function (i, b) { this.__select(i); __call("keys.interpolation", { comp: this.__layer.__comp, roving: !!b }); };
+  P.setRovingAtKey = function (i, b) { this.__keyCmd(i, "keys.interpolation", { roving: !!b }); };
   P.keyInSpatialTangent = function (i) { return this.__key(i).spatialIn.slice(0, this.__info().dims); };
   P.keyOutSpatialTangent = function (i) { return this.__key(i).spatialOut.slice(0, this.__info().dims); };
   P.keySpatialContinuous = function (i) { return !!this.__key(i).spatialContinuous; };
@@ -873,8 +872,8 @@ Property.prototype.property = function () { return null; };
     var k = this.__key(i);
     __call("keys.setSpatialTangents", this.__ref({ time: k.layerTime, "in": inT, out: outT === undefined ? inT : outT }));
   };
-  P.setSpatialContinuousAtKey = function (i, b) { this.__select(i); __call("keys.interpolation", { comp: this.__layer.__comp, spatial: b ? "continuousBezier" : "bezier" }); };
-  P.setSpatialAutoBezierAtKey = function (i, b) { this.__select(i); __call("keys.interpolation", { comp: this.__layer.__comp, spatial: b ? "autoBezier" : "bezier" }); };
+  P.setSpatialContinuousAtKey = function (i, b) { this.__keyCmd(i, "keys.interpolation", { spatial: b ? "continuousBezier" : "bezier" }); };
+  P.setSpatialAutoBezierAtKey = function (i, b) { this.__keyCmd(i, "keys.interpolation", { spatial: b ? "autoBezier" : "bezier" }); };
   P.keySelected = function (i) { return !!this.__key(i).selected; };
   P.setSelectedAtKey = function (i, b) {
     var k = this.__key(i);
@@ -1743,11 +1742,11 @@ var app = {
   exitCode: 0,
   saveProjectOnCrash: true,
   onError: null,
+  // Kept in the settings folder, so they last between runs (`script.settings.*`).
   settings: {
-    __s: {},
-    haveSetting: function (sec, key) { return (sec + "/" + key) in this.__s; },
-    getSetting: function (sec, key) { return this.__s[sec + "/" + key] || ""; },
-    saveSetting: function (sec, key, v) { this.__s[sec + "/" + key] = String(v); },
+    haveSetting: function (sec, key) { return __call("script.settings.get", { section: String(sec), key: String(key) }).have; },
+    getSetting: function (sec, key) { return __call("script.settings.get", { section: String(sec), key: String(key) }).value; },
+    saveSetting: function (sec, key, v) { __call("script.settings.save", { section: String(sec), key: String(key), value: String(v) }); },
   },
   preferences: {
     havePref: function () { return false; },

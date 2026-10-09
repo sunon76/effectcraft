@@ -191,9 +191,12 @@ The most important missing piece: it turns every other estimate here into a meas
   panels in the user's ScriptUI Panels folder are listed in the Window menu, dock like any panel
   and open again at the next launch. Missing: the Startup and Shutdown script folders, keyboard
   shortcuts for scripts, ExtendScript's `#include` / `#target` directives and `.jsxbin`.
-- Done so far: ease presets (Window ▸ Ease Presets, `keys.easePreset.*`, #254) cover what
-  ease-curve plug-ins are used for: easing curves kept by name, drawn and edited in a value graph,
-  and applied to pairs of keyframes ([parity.md](parity.md#update-ease-presets-254)).
+- Done so far: ease presets (#254) cover what ease-curve plug-ins are used for: easing curves kept
+  by name and applied to pairs of keyframes. Modelled on a third-party panel, they are not core: a
+  ScriptUI panel bundled as an optional extension (`extensions/scriptui-panels/Ease Presets.jsx`,
+  Window ▸ Ease Presets.jsx) on the public scripting API, which needed `app.settings` that last,
+  per-key methods that keep the key selection, and eases reported as they play
+  ([plugins.md](plugins.md#bundled-extensions), [parity.md](parity.md)).
 
 ### G9. Reach
 

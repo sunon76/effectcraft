@@ -92,6 +92,20 @@ fn label_index(l: Label) -> usize {
     Label::ALL.iter().position(|x| *x == l).unwrap_or(0)
 }
 
+/// A comp's selected properties as `[layer, uid]`: the selected ones, then those with selected
+/// keyframes (selecting a keyframe selects its property in After Effects, so scripts find
+/// selected keys through `selectedProperties`).
+fn selected_props(s: &Session, c: &effectcraft_project::Comp) -> Vec<J> {
+    let mut v: Vec<(u64, u64)> = vec![];
+    let keyed = s.state.selected_keys.iter().map(|k| (k.layer, k.prop));
+    for (l, p) in s.state.selected_props.iter().copied().chain(keyed) {
+        if c.layer(l).is_some() && !v.contains(&(l.0, p)) {
+            v.push((l.0, p));
+        }
+    }
+    v.into_iter().map(|(l, p)| json!([l, p])).collect()
+}
+
 fn item(s: &Session, a: &J) -> R {
     let id = ItemId(u(a, "id").ok_or("missing id")?);
     let it = s.project.item(id).ok_or("the item no longer exists (it was deleted)")?;
@@ -123,7 +137,7 @@ fn item(s: &Session, a: &J) -> R {
                         "duration": c.duration.seconds(), "frameRate": fps, "frameDuration": c.frame_duration().seconds(),
                         "layers": c.layers.iter().map(|l| l.id.0).collect::<Vec<_>>(),
                         "selectedLayers": sel,
-                        "selectedProperties": s.state.selected_props.iter().filter(|(l, _)| c.layer(*l).is_some()).map(|(l, p)| json!([l.0, p])).collect::<Vec<_>>(),
+                        "selectedProperties": selected_props(s, c),
                         "time": s.time_of(cid).seconds(),
                         "workAreaStart": c.work_area.0.seconds(), "workAreaDuration": (c.work_area.1 - c.work_area.0).seconds(),
                         "bgColor": c.background, "displayStartTime": c.display_start.seconds(),
@@ -321,6 +335,7 @@ fn node_json(c: &Comp, l: &Layer, uid: u64) -> R {
             o["type"] = json!(p.value.kind_name());
             o["dims"] = json!(p.value.dims());
             o["spatial"] = json!(p.spatial);
+            o["interpolates"] = json!(p.value.interpolates());
             o["numKeys"] = json!(p.keys.len());
             o["expression"] = json!(p.expr.as_ref().map(|e| e.text.clone()).unwrap_or_default());
             o["expressionEnabled"] = json!(p.has_expression());
@@ -471,29 +486,36 @@ fn keys(s: &Session, a: &J) -> R {
     let p = l.props.find(uid).ok_or("the property no longer exists (it was deleted)")?;
     let sel: Vec<Tick> = s.state.selected_keys.iter().filter(|k| k.layer == l.id && k.prop == uid).map(|k| k.time).collect();
     let _ = cid;
-    let ease = |e: &[effectcraft_keyframe::Ease], n: usize| -> J {
-        let n = n.max(1);
-        // Influence is stored as a fraction; scripts see percent.
-        let mut v: Vec<J> = e.iter().map(|x| json!({"speed": x.speed, "influence": x.influence * 100.0})).collect();
-        let d = e.first().cloned().unwrap_or_default();
-        while v.len() < n {
-            v.push(json!({"speed": d.speed, "influence": d.influence * 100.0}));
-        }
+    let dims = if p.spatial { 1 } else { p.value.dims().max(1) };
+    // Each side's ease as it plays (After Effects reports linear and auto-Bezier sides this way
+    // too), else as stored; influence is stored as a fraction, scripts see percent.
+    let ease = |i: usize, out: bool| -> J {
+        let Some(k) = p.keys.get(i) else { return json!([]) };
+        let stored = if out { &k.out_ease } else { &k.in_ease };
+        let v: Vec<J> = (0..dims)
+            .map(|d| {
+                let e =
+                    effectcraft_keyframe::side_ease(&p.keys, i, d, p.spatial, out).or_else(|| stored.get(d).or(stored.first()).copied()).unwrap_or_default();
+                json!({"speed": e.speed, "influence": e.influence * 100.0})
+            })
+            .collect();
         J::Array(v)
     };
-    let dims = if p.spatial { 1 } else { p.value.dims().max(1) };
     let out: Vec<J> = p
         .keys
         .iter()
-        .map(|k| {
+        .enumerate()
+        .map(|(i, k)| {
+            // Spatial tangents as the motion path plays (auto-Bezier and continuous keys too).
+            let (spatial_in, spatial_out) = if p.spatial { effectcraft_keyframe::spatial_tangents(&p.keys, i) } else { (k.spatial_in, k.spatial_out) };
             json!({
                 "time": l.comp_time(k.time).seconds(),
                 "layerTime": k.time.seconds(),
                 "value": js_value(c, &k.value),
                 "inInterp": interp(k.in_interp), "outInterp": interp(k.out_interp),
-                "inEase": ease(&k.in_ease, dims), "outEase": ease(&k.out_ease, dims),
+                "inEase": ease(i, false), "outEase": ease(i, true),
                 "continuous": k.continuous, "autoBezier": k.auto_bezier, "roving": k.roving,
-                "spatialIn": k.spatial_in, "spatialOut": k.spatial_out,
+                "spatialIn": spatial_in, "spatialOut": spatial_out,
                 "spatialContinuous": k.spatial_continuous, "spatialAutoBezier": k.spatial_auto,
                 "selected": sel.contains(&k.time),
             })

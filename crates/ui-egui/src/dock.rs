@@ -50,12 +50,10 @@ pub enum PanelKind {
     CreateNullsFromPaths,
     /// Window ▸ VR Comp Editor (our own panel).
     VrCompEditor,
-    /// Window ▸ Ease Presets (our own panel).
-    EasePresets,
 }
 
 impl PanelKind {
-    pub const ALL: [PanelKind; 35] = [
+    pub const ALL: [PanelKind; 34] = [
         PanelKind::Project,
         PanelKind::EffectControls,
         PanelKind::Composition,
@@ -90,7 +88,6 @@ impl PanelKind {
         PanelKind::ContentAwareFill,
         PanelKind::CreateNullsFromPaths,
         PanelKind::VrCompEditor,
-        PanelKind::EasePresets,
     ];
     pub fn title(self) -> &'static str {
         match self {
@@ -130,7 +127,6 @@ impl PanelKind {
             PanelKind::ContentAwareFill => "Content-Aware Fill",
             PanelKind::CreateNullsFromPaths => "Create Nulls From Paths",
             PanelKind::VrCompEditor => "VR Comp Editor",
-            PanelKind::EasePresets => "Ease Presets",
         }
     }
     pub fn id(self) -> String {
@@ -371,7 +367,6 @@ pub fn workspace(name: &str) -> DockNode {
                             ContentAwareFill,
                             CreateNullsFromPaths,
                             VrCompEditor,
-                            EasePresets,
                         ],
                     ),
                 ),

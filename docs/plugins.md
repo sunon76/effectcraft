@@ -19,7 +19,7 @@ Guide):
 | `Scripts/ScriptUI Panels`: listed at the bottom of the Window menu, dockable like the app's own panels, `this` is the panel | `Scripts/ScriptUI Panels/` in the settings folder (File ▸ Scripts ▸ Install ScriptUI Panel… copies one there), listed at the bottom of the Window menu, docked like any panel, `this` is the panel; the panels open when the app quits open again at the next launch | Same. Where a panel was docked isn't kept: workspace layouts aren't saved between launches |
 | Keyboard shortcuts for scripts (the Keyboard Shortcuts editor lists the scripts of the Scripts folder) | Shortcuts bind to commands and menu entries; the File ▸ Scripts and Window menu entries of scripts aren't offered | Gap |
 | Running a script from the command line (`afterfx -r script.jsx`) | `effectcraft-cli script`, the control channel's and MCP's `script.run` | Same purpose, other entry points |
-| `app.settings` (kept in the preferences between sessions) | Kept for the run only | Gap |
+| `app.settings` (kept in the preferences between sessions) | Kept in `script_settings.json` in the settings folder (`script.settings.get` / `script.settings.save`) | Same |
 | Allow Scripts to Write Files and Access Network | Settings ▸ Scripting & Expressions | Same |
 
 The settings folder is `~/Library/Application Support/EffectCraft` on macOS, `%APPDATA%\EffectCraft`
@@ -84,10 +84,44 @@ Supported controls: `panel`, `group`, `button`, `iconbutton`, `statictext`, `edi
 `tabbedpanel` / `tab` and `image`, with ScriptUI's automatic layout (`orientation`,
 `alignChildren`, `alignment`, `margins`, `spacing`, `preferredSize`), resource strings, event
 handlers (`onClick`, `onChange`, `onChanging`, `onClose`, `addEventListener`) and `onDraw` with
-ScriptUIGraphics. Agents use a panel like a user: `scriptui.list`, `scriptui.get` (its controls),
-`scriptui.click`, `scriptui.set` and `scriptui.close`; every control has the automation id
+ScriptUIGraphics. Mouse events (`mousedown`, `mousemove`…) aren't sent to scripts yet. Agents use
+a panel like a user: `scriptui.list`, `scriptui.get` (its controls), `scriptui.click`,
+`scriptui.set` and `scriptui.close`; every control has the automation id
 `scriptui.<window>.<control id or name>`. The bundled sample `Layer Tools.jsx`
-(`crates/engine/scripts/ScriptUI Panels/`) is a longer example.
+(`crates/engine/scripts/ScriptUI Panels/`) and the Ease Presets extension below are longer
+examples.
+
+## Bundled extensions
+
+Optional tools that ship with EffectCraft but are not part of its core: they are scripts on the
+public scripting API, like the third-party scripts After Effects users install, and are listed
+with the bundled samples (`file.scripts.list` reports them as `extension`). A script of the same
+name in your Scripts folders takes their place.
+
+### Ease Presets (`extensions/scriptui-panels/Ease Presets.jsx`)
+
+Window ▸ Ease Presets.jsx: easing curves kept by name and applied to pairs of neighbouring
+selected keyframes (#254; it was a core panel in v0.6.0). A curve is the out side of a segment's
+first key and the in side of its second, in the Keyframe Velocity dialog's terms: influence in
+percent, and speed relative to the segment's average speed (1 = as fast as a straight line, 0 = at
+rest), so one curve fits any duration and change of value.
+
+* Click a preset to apply it to every pair of neighbouring selected keyframes of each selected
+  property, in one undo step (per dimension, and along the motion path for spatial properties;
+  the keys' other sides keep playing as they did). The keys stay selected, so you can try another.
+* The drawing shows the working curve; type its numbers (Out % and Speed, In % and Speed) and
+  click Apply, or click From Keys to read the curve between the first selected pair.
+* Save keeps the working curve under the typed name (replacing a preset of that name); Rename
+  and Delete act on the selected preset of your own. The twelve built-in presets can't change.
+* User presets are kept with `app.settings` (section `Ease Presets`, key `userPresets`, in
+  `script_settings.json` in the settings folder). Presets saved by the v0.6.0 core panel
+  (`ease_presets.json`) move there the first time a later version loads its settings; the old
+  file is left as it was.
+
+It uses only After Effects' documented scripting API (`comp.selectedProperties`,
+`Property.selectedKeys`, `keyInTemporalEase` / `keyOutTemporalEase`, `setTemporalEaseAtKey` with
+`KeyframeEase`, `setInterpolationTypeAtKey`, `app.settings`, ScriptUI), so it is also a worked
+example of a keyframe tool.
 
 ## Effect plug-ins
 

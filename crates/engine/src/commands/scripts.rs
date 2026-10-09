@@ -3,11 +3,15 @@
 //! * **Installed scripts** live in the settings store under `Scripts/` (File ▸ Scripts ▸ Install
 //!   Script File…) and `Scripts/ScriptUI Panels/` (Install ScriptUI Panel…), next to the
 //!   settings on the desktop, so dropping `.jsx` files in those folders works too. File ▸ Scripts
-//!   lists them with the bundled sample scripts ([`SAMPLES`]) and runs them by name; ScriptUI
+//!   lists them with the bundled sample scripts and extensions ([`BUNDLED`]) and runs them by name; ScriptUI
 //!   panels appear at the bottom of the Window menu and open as dockable panels
 //!   (`window.scriptPanel`), running with `this` = the panel as in After Effects.
 //! * **ScriptUI windows** (`scriptui.*`): list the open script windows, read their control
 //!   trees, click buttons and set values like a user, close them (see [`crate::scriptui`]).
+//! * **Script settings** (`script.settings.*`): After Effects' `app.settings`, string values by
+//!   section and key that last between runs ([`SCRIPT_SETTINGS_FILE`]).
+
+use std::collections::BTreeMap;
 
 use serde::Serialize;
 use serde_json::{Value, json};
@@ -20,14 +24,88 @@ pub const SCRIPTS_DIR: &str = "Scripts";
 pub const PANELS_DIR: &str = "Scripts/ScriptUI Panels";
 /// The ScriptUI panels open when EffectCraft last quit (settings store), reopened at launch.
 pub const OPEN_PANELS_FILE: &str = "scriptui_panels.json";
+/// Scripts' `app.settings` in the settings store: `{section: {key: value}}`, as After Effects
+/// keeps them in its preferences.
+pub const SCRIPT_SETTINGS_FILE: &str = "script_settings.json";
+/// User presets of the core Ease Presets panel of v0.6.0 (#254) and where the Ease Presets
+/// ScriptUI panel that replaced it keeps them: (file, section, key). The file's text moves there
+/// unchanged (the panel reads the same JSON) the first time settings load.
+const LEGACY_EASE_PRESETS: (&str, &str, &str) = ("ease_presets.json", "Ease Presets", "userPresets");
+/// Longest section, key and value a script may store (characters / bytes).
+const MAX_SETTING_NAME: usize = 256;
+const MAX_SETTING_VALUE: usize = 1 << 20;
 
-/// Sample scripts that ship with EffectCraft (original work): (file name, ScriptUI panel, code).
-pub const SAMPLES: &[(&str, bool, &str)] = &[
-    ("Create Null at Selected Layers.jsx", false, include_str!("../../scripts/Create Null at Selected Layers.jsx")),
-    ("Rename Layers.jsx", false, include_str!("../../scripts/Rename Layers.jsx")),
-    ("Render Queue Batch.jsx", false, include_str!("../../scripts/Render Queue Batch.jsx")),
-    ("Sort Layers by In Point.jsx", false, include_str!("../../scripts/Sort Layers by In Point.jsx")),
-    ("Layer Tools.jsx", true, include_str!("../../scripts/ScriptUI Panels/Layer Tools.jsx")),
+/// Scripts' `app.settings`: values by section and key.
+pub type ScriptSettings = BTreeMap<String, BTreeMap<String, String>>;
+
+/// Load scripts' settings from the settings store (a corrupt file gives none), moving user ease
+/// presets saved before Ease Presets became a ScriptUI panel into its section.
+pub(crate) fn load_script_settings(s: &mut Session) {
+    let Some(cfg) = s.config.clone() else { return };
+    s.script_settings = cfg
+        .read(SCRIPT_SETTINGS_FILE)
+        .and_then(|t| serde_json::from_str(&t).map_err(|e| log::warn!("{SCRIPT_SETTINGS_FILE} is not valid ({e}); scripts start without their settings")).ok())
+        .unwrap_or_default();
+    let (file, section, key) = LEGACY_EASE_PRESETS;
+    if let Some(text) = cfg.read(file)
+        && !s.script_settings.get(section).is_some_and(|m| m.contains_key(key))
+    {
+        s.script_settings.entry(section.into()).or_default().insert(key.into(), text);
+        if let Err(e) = store_script_settings(s) {
+            log::warn!("cannot move {file} into the Ease Presets panel's settings: {e}");
+        }
+    }
+}
+
+fn store_script_settings(s: &Session) -> Result<()> {
+    let Some(cfg) = &s.config else { return Ok(()) };
+    let text = serde_json::to_string_pretty(&s.script_settings).map_err(|e| EngineError::Other(format!("script settings: {e}")))?;
+    cfg.write(SCRIPT_SETTINGS_FILE, &text).map_err(|e| EngineError::Other(format!("cannot save script settings: {e}")))
+}
+
+fn setting_name<'a>(p: &'a Value, k: &str, c: &str) -> Result<&'a str> {
+    let v = str_p(p, k).ok_or_else(|| bad(c, format!("missing `{k}`")))?;
+    if v.chars().count() > MAX_SETTING_NAME {
+        return Err(bad(c, format!("`{k}` is longer than {MAX_SETTING_NAME} characters")));
+    }
+    Ok(v)
+}
+
+/// `script.settings.get {section, key}` → `{have, value}` (`value` "" when there is none).
+fn settings_get(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "script.settings.get";
+    let (section, key) = (setting_name(p, "section", C)?, setting_name(p, "key", C)?);
+    let v = s.script_settings.get(section).and_then(|m| m.get(key));
+    Ok(json!({"have": v.is_some(), "value": v.cloned().unwrap_or_default()}))
+}
+
+/// `script.settings.save {section, key, value}`: kept in the settings store.
+fn settings_save(s: &mut Session, p: &Value) -> Result<Value> {
+    const C: &str = "script.settings.save";
+    let (section, key) = (setting_name(p, "section", C)?, setting_name(p, "key", C)?);
+    let value = match p.get("value") {
+        Some(Value::String(v)) => v.clone(),
+        Some(v) if !v.is_null() => v.to_string(),
+        _ => return Err(bad(C, "missing `value`")),
+    };
+    if value.len() > MAX_SETTING_VALUE {
+        return Err(bad(C, format!("`value` is larger than {MAX_SETTING_VALUE} bytes")));
+    }
+    s.script_settings.entry(section.into()).or_default().insert(key.into(), value);
+    store_script_settings(s)?;
+    Ok(Value::Null)
+}
+
+/// Scripts that ship with EffectCraft (original work): (file name, ScriptUI panel, source, code).
+/// `sample`s show how to script EffectCraft; `extension`s (in `extensions/`) are optional tools
+/// built on the public scripting API, outside the core, like third-party scripts in After Effects.
+pub const BUNDLED: &[(&str, bool, &str, &str)] = &[
+    ("Create Null at Selected Layers.jsx", false, "sample", include_str!("../../scripts/Create Null at Selected Layers.jsx")),
+    ("Rename Layers.jsx", false, "sample", include_str!("../../scripts/Rename Layers.jsx")),
+    ("Render Queue Batch.jsx", false, "sample", include_str!("../../scripts/Render Queue Batch.jsx")),
+    ("Sort Layers by In Point.jsx", false, "sample", include_str!("../../scripts/Sort Layers by In Point.jsx")),
+    ("Layer Tools.jsx", true, "sample", include_str!("../../scripts/ScriptUI Panels/Layer Tools.jsx")),
+    ("Ease Presets.jsx", true, "extension", include_str!("../../../../extensions/scriptui-panels/Ease Presets.jsx")),
 ];
 
 /// A script File ▸ Scripts (or the Window menu, for panels) offers.
@@ -37,7 +115,7 @@ pub struct ScriptEntry {
     pub name: String,
     /// In the ScriptUI Panels folder: opens as a dockable panel.
     pub panel: bool,
-    /// `installed` or `sample`.
+    /// `installed`, `sample` or `extension` (bundled, see [`BUNDLED`]).
     pub source: &'static str,
 }
 
@@ -46,7 +124,7 @@ fn is_script(name: &str) -> bool {
     l.ends_with(".jsx") || l.ends_with(".js")
 }
 
-/// Installed scripts and panels, then the samples not shadowed by an installed one, by name.
+/// Installed scripts and panels, then the bundled ones not shadowed by an installed one, by name.
 pub fn scripts(s: &Session) -> Vec<ScriptEntry> {
     let mut v: Vec<ScriptEntry> = vec![];
     if let Some(cfg) = &s.config {
@@ -56,16 +134,16 @@ pub fn scripts(s: &Session) -> Vec<ScriptEntry> {
             }
         }
     }
-    for (name, panel, _) in SAMPLES {
+    for (name, panel, source, _) in BUNDLED {
         if !v.iter().any(|e| e.name == *name && e.panel == *panel) {
-            v.push(ScriptEntry { name: name.to_string(), panel: *panel, source: "sample" });
+            v.push(ScriptEntry { name: name.to_string(), panel: *panel, source });
         }
     }
     v.sort_by(|a, b| a.panel.cmp(&b.panel).then(a.name.to_lowercase().cmp(&b.name.to_lowercase())));
     v
 }
 
-/// The code of an installed or sample script / panel.
+/// The code of an installed or bundled script / panel.
 pub fn script_code(s: &Session, name: &str, panel: Option<bool>) -> Option<(bool, String)> {
     if let Some(cfg) = &s.config {
         for (dir, is_panel) in [(SCRIPTS_DIR, false), (PANELS_DIR, true)] {
@@ -77,7 +155,7 @@ pub fn script_code(s: &Session, name: &str, panel: Option<bool>) -> Option<(bool
             }
         }
     }
-    SAMPLES.iter().find(|(n, p, _)| *n == name && panel.is_none_or(|w| w == *p)).map(|(_, p, c)| (*p, c.to_string()))
+    BUNDLED.iter().find(|(n, p, ..)| *n == name && panel.is_none_or(|w| w == *p)).map(|(_, p, _, c)| (*p, c.to_string()))
 }
 
 fn install(s: &mut Session, p: &Value, panel: bool) -> Result<Value> {
@@ -120,10 +198,10 @@ fn uninstall(s: &mut Session, p: &Value) -> Result<Value> {
     if removed { Ok(json!({"removed": name})) } else { Err(bad(c, format!("`{name}` is not installed"))) }
 }
 
-/// Run an installed or sample script by name (File ▸ Scripts ▸ <name>). A ScriptUI panel run
+/// Run an installed or bundled script by name (File ▸ Scripts ▸ <name>). A ScriptUI panel run
 /// this way gets `this` = a floating palette-like panel window.
 pub(crate) fn run_named(s: &mut Session, name: &str) -> Result<Value> {
-    let (panel, code) = script_code(s, name, None).ok_or_else(|| bad("file.runScript", format!("no installed or sample script `{name}`")))?;
+    let (panel, code) = script_code(s, name, None).ok_or_else(|| bad("file.runScript", format!("no installed or bundled script `{name}`")))?;
     if panel {
         return open_panel(s, &json!({"name": name}));
     }
@@ -241,7 +319,7 @@ pub fn specs() -> Vec<CommandSpec> {
             |s, p| install(s, p, true)
         ),
         cmd!("file.uninstallScript", "Uninstall Script", [], None, "{name}", always, uninstall),
-        crate::query!("file.scripts.list", "List Scripts", "{} → [{name, panel, source: installed|sample}]", list),
+        crate::query!("file.scripts.list", "List Scripts", "{} → [{name, panel, source: installed|sample|extension}]", list),
         cmd!(
             "window.scriptPanel",
             "ScriptUI Panel",
@@ -259,6 +337,16 @@ pub fn specs() -> Vec<CommandSpec> {
             "{} → reopens the ScriptUI panels open when EffectCraft last quit (frontends call it at launch) → {opened: [name], failed: [{name, error}]}",
             always,
             restore_panels
+        ),
+        crate::query!("script.settings.get", "Get Script Setting", "{section, key} → {have, value} (app.settings.haveSetting / getSetting)", settings_get),
+        cmd!(
+            "script.settings.save",
+            "Save Script Setting",
+            [],
+            None,
+            "{section, key, value (text)} → kept in the settings store (app.settings.saveSetting)",
+            always,
+            settings_save
         ),
         crate::query!("scriptui.list", "List Script Windows", "{} → [{window, title, kind: dialog|palette|window|panel, script, modal, size}]", scriptui::list),
         crate::query!(

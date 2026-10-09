@@ -14,7 +14,8 @@
 //! ```
 //!
 //! * **Object model** (`prelude.js`): `app` (project, open/newProject, undo groups,
-//!   `executeCommand`/`findMenuCommandId`, `scheduleTask`), `Project`, `ItemCollection`,
+//!   `executeCommand`/`findMenuCommandId`, `scheduleTask`, `settings` kept in the settings
+//!   folder), `Project`, `ItemCollection`,
 //!   `CompItem`/`FootageItem`/`FolderItem`, `LayerCollection`, `AVLayer`/`TextLayer`/
 //!   `ShapeLayer`/`CameraLayer`/`LightLayer`, `PropertyGroup`/`Property` (values, keyframes,
 //!   eases, expressions), `MaskPropertyGroup`, `TextDocument`, `Shape`, `KeyframeEase`,
@@ -81,6 +82,8 @@ pub fn run_code(s: &mut Session, code: &str, name: &str) -> Outcome {
 
 #[cfg(test)]
 mod tests;
+#[cfg(test)]
+mod tests_ease_presets;
 #[cfg(test)]
 mod tests_panels;
 #[cfg(test)]

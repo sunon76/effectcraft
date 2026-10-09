@@ -400,27 +400,40 @@ Browser in the web app (landed in M13.10: browser storage and File System Access
   wrong signatures and versions, fuel exhaustion, traps and bit-identical output; script
   `Socket` validates ports, and ScriptUI resource strings accept trailing array commas.
 
-## Update: ease presets (#254)
+## Update: plug-ins and extensions as in After Effects; ease presets become a ScriptUI panel
 
-**Window ▸ Ease Presets** is our own panel for what ease-curve plug-ins are used for in After
-Effects (G8): keep easing curves by name and apply them to pairs of keyframes. A curve is the out
-handle of the first key and the in handle of the second, in the Keyframe Velocity dialog's terms:
-influence in percent, and speed relative to the segment's average speed, so one curve fits any
-duration and change of value. Applying it eases every pair of neighbouring selected keyframes of
-each property in one undo step, per dimension, and along the motion path for spatial properties
-(as Easy Ease does); an Auto Bezier key keeps its other side. Twelve built-in curves (Linear,
-Smooth, Ease In-Out Soft / plain / Strong, Accelerate and Decelerate with Strong variants, Expo
-In-Out / Accelerate / Decelerate) are our own numbers; user presets are kept in the settings store
-(`ease_presets.json`; a corrupt file or entry is skipped, never fatal). The panel draws each preset
-as a thumbnail (a click applies it) and the working curve in a value graph whose two handles drag;
-Apply, From Keys (the curve between the first selected pair), Save Current, Rename and Delete.
-Commands: `keys.easePreset.apply {preset | curve}` (`curve` as `{outInfluence, outSpeed,
-inInfluence, inSpeed}` or cubic-bezier handles `[x1, y1, x2, y2]`), `keys.easePreset.capture`,
-`keys.easePreset.save {name, curve?}`, `keys.easePreset.list`, `keys.easePreset.rename {name,
-newName}`, `keys.easePreset.delete {name}`; automation ids `easePresets.*`.
+EffectCraft's core keeps After Effects parity; what After Effects users get from third parties is
+an extension, on the same extension points After Effects has ([plugins.md](plugins.md) compares
+them: scripts, ScriptUI panels, effect plug-ins, with a guide to writing a panel).
 
-Not yet: curves with more than one bend (bounce and elastic shapes, which need keyframes in
-between), preset import / export files, and a live preview on the keys while dragging the handles.
+- **ScriptUI panels** in `Scripts/ScriptUI Panels/` of the settings folder are listed at the
+  bottom of the Window menu and dock like any panel (as before); the panels open when the app quits
+  now open again at the next launch (`window.restoreScriptPanels`), as After Effects reopens its
+  workspace's panels.
+- **Scripting API** (parity fixes the Ease Presets panel needed): `app.settings` lasts between
+  runs (`script_settings.json`, `script.settings.get` / `save`); per-key methods
+  (`setTemporalEaseAtKey`, `setInterpolationTypeAtKey`, `removeKey`, the continuous / auto-Bezier /
+  roving setters) no longer change the user's key selection; `keyInTemporalEase` /
+  `keyOutTemporalEase` report linear and auto-Bezier sides as they play, and
+  `keyIn/OutSpatialTangent` the tangents the motion path plays; `selectedProperties` includes the
+  properties of selected keyframes; `isInterpolationTypeValid` is false for Linear and Bezier on
+  values that only hold.
+- **Ease presets** (#254), modelled on a third-party panel, moved out of the core: they are the
+  bundled ScriptUI panel `extensions/scriptui-panels/Ease Presets.jsx` (Window ▸ Ease
+  Presets.jsx), written only against the public scripting API. A curve is the out side of the
+  first key and the in side of the second, in the Keyframe Velocity dialog's terms (influence in
+  percent, speed relative to the segment's average speed); clicking a preset eases every pair of
+  neighbouring selected keyframes in one undo step, per dimension and along the motion path for
+  spatial properties, leaving the keys' other sides as they play. The twelve built-in curves are
+  unchanged; user presets (Save, Rename, Delete) are kept with `app.settings`, and those saved by
+  the core panel of v0.6.0 (`ease_presets.json`) move there the first time settings load. The
+  panel shows the working curve as a drawing and its four numbers as fields (the value graph's
+  handles don't drag: ScriptUI panels get no mouse-drag events here). The `keys.easePreset.*`
+  commands and `EaseCurve` are gone. Not yet: curves with more than one bend (bounce and elastic
+  shapes), preset import / export files.
+- **Snapping options** (#265): the Tools bar's menu has After Effects' two options, Snap Edges
+  Extended and Snap to Features in Collapsed Compositions and Text Layers (the layers inside
+  collapsed precomp layers snap); the per-feature toggles are gone and every feature snaps.
 
 ## Update: M5.9–M5.14 keyframes, M3.15 clipboard, M12.8 responsiveness
 

@@ -121,11 +121,17 @@ pub(crate) fn js_str(s: &str) -> JsValue {
 /// target comp made active for its duration.
 fn native_exec(_: &JsValue, args: &[JsValue], ctx: &mut Context) -> JsResult<JsValue> {
     let id = arg_string(args, 0, ctx)?;
-    let params = arg_json(args, 1, ctx)?;
+    let mut params = arg_json(args, 1, ctx)?;
     if id == "script.run" || id == "file.runScript" {
         return Err(throw("scripts can't run scripts"));
     }
-    let r = with_active(|a| Ok(exec(&mut a.session, &id, params)));
+    let keys = params.as_object_mut().and_then(|o| o.remove("__keys"));
+    let r = with_active(|a| {
+        Ok(match &keys {
+            Some(k) => exec_on_keys(&mut a.session, &id, params, k),
+            None => exec(&mut a.session, &id, params),
+        })
+    });
     match r {
         Ok(Ok(v)) => Ok(js_str(&v.to_string())),
         Ok(Err(e)) | Err(e) => Err(throw(e)),
@@ -162,6 +168,35 @@ pub(crate) fn exec(s: &mut Session, id: &str, params: J) -> Result<J, String> {
         }
     }
     r.map_err(|e| e.to_string())
+}
+
+/// Run a keyframe command that acts on the selected keys (`keys.velocity`, `keys.interpolation`,
+/// `keys.delete`) on the keys `targets` names instead (`[{layer, prop, index}]`, 0-based, in the
+/// command's comp): After Effects' per-key methods (`setTemporalEaseAtKey`, `removeKey`…) leave
+/// the user's key selection as it was. Selected keys that no longer exist drop out of it.
+fn exec_on_keys(s: &mut Session, id: &str, params: J, targets: &J) -> Result<J, String> {
+    use effectcraft_engine::KeyRef;
+    use effectcraft_engine::project::{ItemId, LayerId};
+    let cid = params.get("comp").and_then(J::as_u64).map(ItemId).or(s.state.active_comp).ok_or("no composition is open")?;
+    let comp = s.project.comp(cid).ok_or("the composition no longer exists")?;
+    let mut keys = vec![];
+    for t in targets.as_array().into_iter().flatten() {
+        let (Some(layer), Some(prop), Some(index)) = (t["layer"].as_u64(), t["prop"].as_u64(), t["index"].as_u64()) else {
+            return Err(format!("bad keyframe reference {t}"));
+        };
+        let l = comp.layer(LayerId(layer)).ok_or("the layer no longer exists")?;
+        if l.switches.locked {
+            return Err(format!("Can not change keyframes of \"{}\": the layer is locked", l.name));
+        }
+        let key = l.props.find(prop).and_then(|pr| pr.keys.get(usize::try_from(index).ok()?)).ok_or("the keyframe no longer exists")?;
+        keys.push(KeyRef { layer: LayerId(layer), prop, time: key.time });
+    }
+    let saved = std::mem::replace(&mut s.state.selected_keys, keys);
+    let r = exec(s, id, params);
+    let comp = s.active_comp();
+    let exists = |k: &KeyRef| comp.and_then(|c| c.layer(k.layer)).and_then(|l| l.props.find(k.prop)).is_some_and(|pr| pr.keys.iter().any(|x| x.time == k.time));
+    s.state.selected_keys = saved.into_iter().filter(exists).collect();
+    r
 }
 
 /// `__query(kind, json)` → JSON.
