@@ -1236,8 +1236,7 @@ pub fn show(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
                         })
                         .collect();
                     // Snap the grabbed layer's feature nearest the pointer (AE's snap handle).
-                    let features = app.session.state.snap_features;
-                    let snap_src = comp.layer(l).map(|layer| effectcraft_engine::viewer::layer_features(&ectx, layer, features)).and_then(|f| {
+                    let snap_src = comp.layer(l).map(|layer| effectcraft_engine::viewer::layer_features(&ectx, layer)).and_then(|f| {
                         let c = map.to_comp(press);
                         f.into_iter().min_by(|a, b| {
                             let da = (a[0] - c[0]).powi(2) + (a[1] - c[1]).powi(2);

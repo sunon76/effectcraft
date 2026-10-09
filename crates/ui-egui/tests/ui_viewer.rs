@@ -295,6 +295,11 @@ fn layer_drag_snaps_to_other_layers_edges_ctrl_toggles_and_options_apply() {
     // Snapping options ▸ Snap Edges Extended off: below the target its edge no longer snaps.
     let menu = rect(&h, "header.snappingOptions").center();
     click(&mut h, menu);
+    // After Effects' two options, without per-feature toggles.
+    assert!(h.query_by_label("✓ Snap to Features in Collapsed Compositions and Text Layers").is_some());
+    for gone in ["✓ Corners", "✓ Anchor Points", "✓ Mask and Shape Path Points"] {
+        assert!(h.query_by_label(gone).is_none(), "{gone}");
+    }
     let item = h.query_by_label("✓ Snap Edges Extended").expect("the Snapping options menu").rect().center();
     click(&mut h, item);
     assert!(!h.state().session.state.snap_features.edges_extended);

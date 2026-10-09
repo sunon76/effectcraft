@@ -110,8 +110,9 @@ revolutions are `timeline.prop.<uid>.revolutions`, `effectControls.prop.<uid>.re
 `timeline.graph.snap` and `timeline.graph.reference`. Use `ui.elements` to see what is on screen.
 
 Viewer state that agents drive headless too: `view.snapping`, `view.snappingOptions
-{edgesExtended?, edges?, corners?, centers?, anchorPoints?, paths?, toggle?}` (the Tools bar's
-Snapping options, `header.snappingOptions`), `view.channel {channel, colorized?}`,
+{edgesExtended?, collapsedFeatures?, toggle?}` (the Tools bar's Snapping options,
+`header.snappingOptions`: After Effects' Snap Edges Extended and Snap to Features in Collapsed
+Compositions and Text Layers), `view.channel {channel, colorized?}`,
 `view.exposure {stops | delta}`, `view.resetExposure`, `view.takeSnapshot`, `view.showSnapshot`,
 `view.fastPreviewMode {mode}`, `view.setRegionOfInterest {rect}`, `view.addGuide`,
 `view.moveGuide`, `view.removeGuide`; editing: `shape.newPath` (Pen on shape layers),

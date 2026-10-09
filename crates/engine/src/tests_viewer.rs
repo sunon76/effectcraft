@@ -84,8 +84,8 @@ fn snap_targets_cover_layers_comp_guides_and_grid() {
 }
 
 /// Tools bar ▸ Snapping options (#253): Snap Edges Extended off keeps a layer's edges to its
-/// extent, each feature family can be turned off, hidden layers are no targets, and with
-/// Snapping off only guides and the grid are left.
+/// extent, every feature of a layer snaps, hidden layers are no targets, and with Snapping off
+/// only guides and the grid are left.
 #[test]
 fn snapping_options_pick_the_targets() {
     use crate::viewer::{SnapFeatures, SnapOptions, layer_features, targets};
@@ -108,35 +108,63 @@ fn snapping_options_pick_the_targets() {
     let own = targets(&ctx, &[], opts(SnapFeatures { edges_extended: false, ..Default::default() }));
     assert!(snap(&[[268.0, 340.0]], &own, 4.0).is_none_or(|h| h.hits.iter().all(|t| t.source != SnapSource::Layer(LayerId(a)))));
     assert_eq!(snap(&[[268.0, 190.0]], &own, 4.0).unwrap().at, [270.0, 190.0]);
-    // Centres (and anchor points, a's sits in its centre) off: nothing at the comp centre, where
-    // a's centre is too; edges off: no edge lines or midpoints, only the comp's centre lines.
-    let no_centres = targets(&ctx, &[], opts(SnapFeatures { centers: false, anchor_points: false, ..Default::default() }));
-    assert!(!no_centres.iter().any(|t| t.pos == [320.0, 180.0]));
-    assert!(no_centres.iter().any(|t| t.pos == [270.0, 155.0]), "corners stay");
-    let no_edges = targets(&ctx, &[], opts(SnapFeatures { edges: false, ..Default::default() }));
-    assert!(!no_edges.iter().any(|t| t.pos == [320.0, 155.0]));
-    assert!(no_edges.iter().filter(|t| t.kind != SnapKind::Point).all(|t| t.source == SnapSource::Comp && (t.pos[0] == 320.0 || t.pos[1] == 180.0)));
-    // The dragged layer's features follow the options too: corners only.
+    // Corners, edge midpoints and the centre of a are targets.
+    for p in [[270.0, 155.0], [320.0, 155.0], [320.0, 180.0]] {
+        assert!(all.iter().any(|t| t.source == SnapSource::Layer(LayerId(a)) && t.pos == p), "{p:?}");
+    }
+    // The dragged layer's features: corners, edge midpoints, centre and anchor point.
     let l = comp.layer(LayerId(a)).unwrap();
-    let corners = SnapFeatures { edges: false, centers: false, anchor_points: false, paths: false, ..Default::default() };
-    assert_eq!(layer_features(&ctx, l, corners), vec![[270.0, 155.0], [370.0, 155.0], [370.0, 205.0], [270.0, 205.0]]);
+    let f = layer_features(&ctx, l);
+    assert_eq!(f[..4], [[270.0, 155.0], [370.0, 155.0], [370.0, 205.0], [270.0, 205.0]]);
+    assert_eq!(f.len(), 10, "{f:?}");
     // Snapping off: guides only.
     let guides = targets(&ctx, &[], SnapOptions { layers: false, guides: true, ..opts(SnapFeatures::default()) });
     assert!(!guides.is_empty() && guides.iter().all(|t| t.source == SnapSource::Guide));
 }
 
+/// Snap to Features in Collapsed Compositions and Text Layers: the layers inside a collapsed
+/// precomp layer are targets (highlighting the precomp layer), only while the option is on and
+/// the precomp layer collapses transformations.
+#[test]
+fn collapsed_precomp_features_snap() {
+    use crate::viewer::{SnapFeatures, SnapOptions, targets};
+    let mut s = comp();
+    // A 40×20 solid at (100, 50) in a 640×360 precomp.
+    let inner = s.execute("layer.newSolid", json!({"color": "#ff0000", "width": 40, "height": 20})).unwrap()["layer"].as_u64().unwrap();
+    s.execute("prop.set", json!({"layer": inner, "path": "transform/position", "value": [100, 50, 0]})).unwrap();
+    s.execute("layer.precompose", json!({"layers": [inner], "name": "Inner"})).unwrap();
+    let pre = s.active_comp().unwrap().layers[0].id;
+    // Moved by (10, 20) in the outer comp: the inner solid's corner (80, 40) lands at (90, 60).
+    s.execute("prop.set", json!({"layer": pre.0, "path": "transform/position", "value": [330, 200, 0]})).unwrap();
+    let cid = s.active_comp_id().unwrap();
+    let at = |s: &Session, f: SnapFeatures| {
+        let comp = s.project.comp(cid).unwrap().clone();
+        let ctx = effectcraft_render::EvalCtx::new(&s.project, cid, &comp, Tick::ZERO);
+        targets(&ctx, &[], SnapOptions { layers: true, features: f, guides: false, grid: false, grid_spacing: 0.0 })
+    };
+    let corner = |t: &[crate::viewer::SnapTarget]| t.iter().any(|t| t.kind == SnapKind::Point && t.pos == [90.0, 60.0] && t.source == SnapSource::Layer(pre));
+    assert!(!corner(&at(&s, SnapFeatures::default())), "not collapsed");
+    s.execute("layer.setSwitch", json!({"layers": [pre.0], "switch": "collapse", "value": true})).unwrap();
+    let on = at(&s, SnapFeatures::default());
+    assert!(corner(&on), "collapsed");
+    assert_eq!(snap(&[[93.0, 63.0]], &on, 5.0).unwrap().at, [90.0, 60.0]);
+    assert!(!corner(&at(&s, SnapFeatures { collapsed_features: false, ..Default::default() })), "option off");
+}
+
 #[test]
 fn snapping_options_command_sets_and_toggles() {
     let mut s = comp();
-    assert!(s.state.snap_features.edges_extended && s.state.snap_features.anchor_points);
-    let r = s.execute("view.snappingOptions", json!({"edgesExtended": false, "anchorPoints": false})).unwrap();
-    assert_eq!(r["edgesExtended"], false);
-    assert!(!s.state.snap_features.edges_extended && !s.state.snap_features.anchor_points && s.state.snap_features.corners);
-    s.execute("view.snappingOptions", json!({"toggle": "paths"})).unwrap();
-    assert!(!s.state.snap_features.paths);
-    s.execute("view.snappingOptions", json!({"toggle": "paths"})).unwrap();
-    assert!(s.state.snap_features.paths);
-    assert!(s.execute("view.snappingOptions", json!({"toggle": "nope"})).is_err());
+    assert_eq!(s.state.snap_features, crate::viewer::SnapFeatures { edges_extended: true, collapsed_features: true });
+    let r = s.execute("view.snappingOptions", json!({"edgesExtended": false})).unwrap();
+    assert_eq!(r, json!({"edgesExtended": false, "collapsedFeatures": true}));
+    s.execute("view.snappingOptions", json!({"toggle": "collapsedFeatures"})).unwrap();
+    assert!(!s.state.snap_features.collapsed_features);
+    s.execute("view.snappingOptions", json!({"toggle": "collapsedFeatures"})).unwrap();
+    assert!(s.state.snap_features.collapsed_features);
+    // The per-feature toggles are gone, as in After Effects' menu.
+    for k in ["nope", "corners", "anchorPoints", "paths"] {
+        assert!(s.execute("view.snappingOptions", json!({"toggle": k})).is_err(), "{k}");
+    }
 }
 
 // ---------------------------------------------------------------- channels, exposure, snapshot

@@ -467,7 +467,7 @@ pub fn specs() -> Vec<CommandSpec> {
             "Snapping Options",
             [],
             None,
-            "{edgesExtended?, edges?, corners?, centers?, anchorPoints?, paths?: bool, toggle?: one of those keys} → the options",
+            "{edgesExtended? (Snap Edges Extended), collapsedFeatures? (Snap to Features in Collapsed Compositions and Text Layers): bool, toggle?: one of those keys} → the options",
             always,
             snapping_options
         ),

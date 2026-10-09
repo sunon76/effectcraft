@@ -251,8 +251,8 @@ pub fn show(app: &mut EffectcraftApp, ui: &mut egui::Ui, rect: Rect) {
     }
 }
 
-/// The Snapping options menu beside the checkbox: Snap Edges Extended and which layer features
-/// snap (`view.snappingOptions`).
+/// The Snapping options menu beside the checkbox: After Effects' Snap Edges Extended and Snap to
+/// Features in Collapsed Compositions and Text Layers (`view.snappingOptions`).
 fn snapping_options(app: &mut EffectcraftApp, ui: &mut egui::Ui, r: Rect) {
     let t = app.tokens;
     let pop = egui::Id::new("snap-options");
@@ -263,19 +263,9 @@ fn snapping_options(app: &mut EffectcraftApp, ui: &mut egui::Ui, r: Rect) {
     if !widgets::popup_is_open(ui, pop) {
         return;
     }
-    // Snap Edges Extended, then the features ("" keys the separator).
     let f = app.session.state.snap_features;
-    let mut keys = vec![];
-    let mut items = vec![];
-    for (i, (k, label)) in vw::SnapFeatures::OPTIONS.into_iter().enumerate() {
-        if i == 1 {
-            keys.push("");
-            items.push("-".to_string());
-        }
-        keys.push(k);
-        items.push(widgets::check_label(f.option(k), label));
-    }
-    if let Some(k) = widgets::popup_menu(ui, pop, r.left_bottom(), &items, None).and_then(|i| keys.get(i))
+    let items: Vec<String> = vw::SnapFeatures::OPTIONS.iter().map(|(k, label)| widgets::check_label(f.option(k), label)).collect();
+    if let Some((k, _)) = widgets::popup_menu(ui, pop, r.left_bottom(), &items, None).and_then(|i| vw::SnapFeatures::OPTIONS.get(i))
         && let Err(e) = app.session.execute("view.snappingOptions", json!({"toggle": k}))
     {
         app.ui.status = e.to_string();
